@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>진천 골프장 세차장</title>
+  <!-- Tailwind CSS & FontAwesome -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- SheetJS (Excel 저장 라이브러리) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js (통계 그래프) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f3f4f6; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="text-gray-800 antialiased min-h-screen flex flex-col justify-between">
+
+  <!-- 로그인/공유 관리 모달 -->
+  <div id="loginModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center space-y-4">
+      <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
+        <i class="fa-solid me-0 fa-car-wash"></i>
+      </div>
+      <h2 class="text-2xl font-extrabold text-gray-800">진천 골프장 세차장</h2>
+      <p class="text-sm text-gray-500">사업장 공유 번호와 비밀번호를 입력해주세요.</p>
+      
+      <div class="space-y-3 text-left pt-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">사업장 번호</label>
+          <input type="text" id="storeId" value="1234" class="w-full border rounded-lg p-2.5 text-center font-bold text-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">접속 모드 및 비밀번호</label>
+          <select id="userRole" onchange="toggleAuthFields()" class="w-full border rounded-lg p-2.5 font-medium bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none mb-2">
+            <option value="admin">🔒 사장님 (입력 및 수정 권한)</option>
+            <option value="staff">👁️ 직원 (실시간 보기 전용)</option>
+          </select>
+          <input type="password" id="storePw" placeholder="비밀번호 입력 (기본: admin123 / staff123)" class="w-full border rounded-lg p-2.5 text-center bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+      </div>
+
+      <button onclick="handleLogin()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition">
+        접속하기
+      </button>
+    </div>
+  </div>
+
+  <!-- 메인 헤더 -->
+  <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md">
+    <div class="max-w-xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <i class="fa-solid fa-soap text-blue-400 text-xl"></i>
+        <h1 class="text-lg font-black tracking-tight">진천 골프장 세차장</h1>
+        <span id="roleBadge" class="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">관리자</span>
+      </div>
+      <div class="flex items-center space-x-1.5">
+        <button onclick="openStatsModal()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg border border-slate-700 text-slate-200 transition flex items-center gap-1">
+          <i class="fa-solid fa-chart-line text-blue-400"></i>
+          <span>조회/정리</span>
+        </button>
+        <button onclick="exportToExcel()" class="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-xs font-semibold rounded-lg text-white transition flex items-center gap-1 shadow-sm">
+          <i class="fa-solid fa-file-excel"></i>
+          <span>엑셀 저장</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-xl mx-auto w-full p-4 space-y-4 flex-1">
+
+    <!-- 날짜 선택 & 로그인 정보 -->
+    <div class="bg-white p-3.5 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <i class="fa-regular fa-calendar-days text-blue-600 text-lg"></i>
+        <input type="date" id="selectedDate" onchange="loadDateData()" class="font-bold text-gray-800 bg-transparent outline-none">
+      </div>
+      <button onclick="logout()" class="text-xs text-gray-400 hover:text-red-500 underline">권한 변경</button>
+    </div>
+
+    <!-- 1:1 대수 & 금액 실시간 대시보드 -->
+    <div class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-4 text-white shadow-lg space-y-3">
+      <div class="flex justify-between items-center border-b border-slate-700/60 pb-2">
+        <span class="text-xs font-medium text-slate-400">일일 종합 요약</span>
+        <span id="syncStatus" class="text-[10px] text-emerald-400 flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> 실시간 연동 중
+        </span>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <!-- 승용차 -->
+        <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+          <div class="text-xs text-slate-400 font-medium mb-1">승용차</div>
+          <div class="text-base font-extrabold text-blue-400"><span id="summarySedanCount">0</span>대</div>
+          <div class="text-[11px] text-slate-300 font-semibold mt-0.5" id="summarySedanAmount">0원</div>
+        </div>
+        <!-- RV 전체 -->
+        <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+          <div class="text-xs text-slate-400 font-medium mb-1">RV 전체</div>
+          <div class="text-base font-extrabold text-purple-400"><span id="summaryRvCount">0</span>대</div>
+          <div class="text-[11px] text-slate-300 font-semibold mt-0.5" id="summaryRvAmount">0원</div>
+        </div>
+        <!-- 기타 -->
+        <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/50">
+          <div class="text-xs text-slate-400 font-medium mb-1">기타 서비스</div>
+          <div class="text-base font-extrabold text-amber-400"><span id="summaryOtherCount">0</span>건</div>
+          <div class="text-[11px] text-slate-300 font-semibold mt-0.5" id="summaryOtherAmount">0원</div>
+        </div>
+      </div>
+
+      <div class="pt-1 flex justify-between items-center text-xs text-slate-300 bg-slate-800/40 px-3 py-2 rounded-lg border border-slate-700/30">
+        <span>총 매출 합계</span>
+        <span class="text-base font-black text-emerald-400" id="summaryTotalAmount">0원</span>
+      </div>
+    </div>
+
+    <!-- 차종별 세차 대수 입력 카테고리 -->
+    <div class="space-y-3">
+      <!-- 1. 승용차 섹션 -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="bg-blue-50/70 px-4 py-2.5 border-b border-blue-100 flex justify-between items-center">
+          <span class="font-bold text-blue-900 text-sm"><i class="fa-solid fa-car text-blue-600 mr-1.5"></i>승용차 차종</span>
+        </div>
+        <div class="p-3 divide-y divide-gray-100">
+          <!-- 승용차 -->
+          <div class="py-2 flex items-center justify-between" data-category="sedan">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">승용차</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="50000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold">+</button>
+            </div>
+          </div>
+          <!-- 대형승용차 -->
+          <div class="py-2 flex items-center justify-between" data-category="sedan">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">대형승용차</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="60000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. RV / 대형 섹션 -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="bg-purple-50/70 px-4 py-2.5 border-b border-purple-100 flex justify-between items-center">
+          <span class="font-bold text-purple-900 text-sm"><i class="fa-solid fa-truck-suv text-purple-600 mr-1.5"></i>RV / 대형 / 루프탑</span>
+        </div>
+        <div class="p-3 divide-y divide-gray-100">
+          <div class="py-2 flex items-center justify-between" data-category="rv">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">RV 소형</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="60000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold">+</button>
+            </div>
+          </div>
+          <div class="py-2 flex items-center justify-between" data-category="rv">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">RV 중형</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="70000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold">+</button>
+            </div>
+          </div>
+          <div class="py-2 flex items-center justify-between" data-category="rv">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">RV 대형</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="80000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold">+</button>
+            </div>
+          </div>
+          <div class="py-2 flex items-center justify-between" data-category="rv">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">루프탑</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="90000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold">+</button>
+            </div>
+          </div>
+          <div class="py-2 flex items-center justify-between" data-category="rv">
+            <div>
+              <div class="font-semibold text-gray-800 text-sm">초대형</div>
+              <div class="text-xs text-gray-400">기본 단가: <input type="number" value="100000" class="price-input w-20 text-right border-b border-gray-300 font-bold text-gray-600 outline-none" onchange="calculateTotals()">원</div>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button onclick="updateCount(this, -1)" class="admin-only w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 font-bold text-gray-600">-</button>
+              <span class="count-val font-bold text-lg w-7 text-center">0</span>
+              <button onclick="updateCount(this, 1)" class="admin-only w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 기타 서비스 섹션 (자유 금액 직접 입력) -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="bg-amber-50/70 px-4 py-2.5 border-b border-amber-100 flex justify-between items-center">
+          <span class="font-bold text-amber-900 text-sm"><i class="fa-solid fa-sparkles text-amber-600 mr-1.5"></i>기타 옵션 / 특수 작업</span>
+        </div>
+        <div class="p-3 grid grid-cols-2 gap-2 text-xs" id="customServicesGrid">
+          <!-- 6개 개별 항목: 내부세차, 외부세차, 직원세차, 유막, 광택, 기타 -->
+          <div class="bg-gray-50 p-2 rounded-lg border border-gray-100 space-y-1" data-custom="내부세차">
+            <span class="font-semibold text-gray-700">내부세차</span>
+            <input type="number" placeholder="금액 입력" class="custom-price w-full p-1.5 border rounded text-right font-bold bg-white" onchange="calculateTotals()">
+          </div>
+          <div class="bg-gray-50 p-2 rounded-lg border border-gray-100 space-y-1" data-custom="외부세차">
+            <span class="font-semibold text-gray-700">외부세차</span>
+            <input type="number" placeholder="금액 입력" class="custom-price w-full p-1.5 border rounded text-right font-bold bg-white" onchange="calculateTotals()">
+          </div>
+          <div class="bg-gray-50 p-2 rounded-lg border border-gray-100 space-y-1" data-custom="직원세차">
+            <span class="font-semibold text-gray-700">직원세차</span>
+            <input type="number" placeholder="금액 입력" class="custom-price w-full p-1.5 border rounded text-right font-bold bg-white" onchange="calculateTotals()">
+          </div>
+          <div class="bg-gray-50 p-2 rounded-lg border border-gray-100 space-y-1" data-custom="유막제거">
+            <span class="font-semibold text-gray-700">유막제거</span>
+            <input type="number" placeholder="금액 입력" class="custom-price w-full p-1.5 border rounded text-right font-bold bg-white" onchange="calculateTotals()">
+          </div>
+          <div class="bg-gray-50 p-2 rounded-lg border border-gray-100 space-y-1" data-custom="광택">
+            <span class="font-semibold text-gray-700">광택</span>
+            <input type="number" placeholder="금액 입력" class="custom-price w-full p-1.5 border rounded text-right font-bold bg-white" onchange="calculateTotals()">
+          </div>
+          <div class="bg-gray-50 p-2 rounded-lg border border-gray-100 space-y-1" data-custom="기타">
+            <span class="font-semibold text-gray-700">기타</span>
+            <input type="number" placeholder="금액 입력" class="custom-price w-full p-1.5 border rounded text-right font-bold bg-white" onchange="calculateTotals()">
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 일일 메모장 & 사진/동영상 첨부 -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-3.5 space-y-3">
+        <div class="flex items-center justify-between border-b border-gray-100 pb-2">
+          <span class="font-bold text-gray-800 text-sm flex items-center gap-1.5">
+            <i class="fa-solid fa-note-sticky text-amber-500"></i> 오늘의 메모 / 특이사항
+          </span>
+          <label class="admin-only cursor-pointer text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2.5 py-1 rounded-lg border border-slate-300 flex items-center gap-1 transition">
+            <i class="fa-solid fa-camera text-blue-600"></i>
+            <span>사진/동영상 촬영</span>
+            <input type="file" accept="image/*,video/*" multiple class="hidden" onchange="handleMediaUpload(event)">
+          </label>
+        </div>
+
+        <textarea id="dailyMemo" rows="3" placeholder="예: 현금 결제 2건, 우천 조기 마감, 특수 오염 차량 세차 완료 등..." class="w-full text-sm p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none resize-none" oninput="saveCurrentData()"></textarea>
+
+        <!-- 첨부된 사진/동영상 미리보기 리스트 -->
+        <div id="mediaPreviewList" class="flex gap-2 overflow-x-auto py-1 no-scrollbar min-h-[60px]">
+          <div class="text-xs text-gray-400 self-center mx-auto" id="noMediaText">첨부된 미디어가 없습니다.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 저장 완료 버튼 (관리자 전용) -->
+    <button id="saveBtn" onclick="saveCurrentData(true)" class="admin-only w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md transition text-base">
+      <i class="fa-solid fa-floppy-disk mr-1.5"></i> 오늘 기록 저장하기
+    </button>
+  </main>
+
+  <!-- 전체 내역 & 통계 모달 -->
+  <div id="statsModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="p-4 bg-slate-900 text-white flex justify-between items-center">
+        <h3 class="font-bold text-base flex items-center gap-2">
+          <i class="fa-solid fa-list-check text-blue-400"></i> 전체 내역 직접 조회
+        </h3>
+        <button onclick="closeStatsModal()" class="text-gray-400 hover:text-white text-lg px-2"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="p-4 overflow-y-auto space-y-4 flex-1 bg-gray-50">
+        <!-- 그래프 요약 -->
+        <div class="bg-white p-3 rounded-xl border border-gray-200">
+          <h4 class="text-xs font-bold text-gray-600 mb-2">월별 매출 현황</h4>
+          <canvas id="monthlyChart" class="max-h-40 w-full"></canvas>
+        </div>
+
+        <!-- 날짜별 데이터 카드 리스트 -->
+        <div class="space-y-2.5" id="historyCardList">
+          <!-- 스크립트로 생성됨 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 로컬 스토리지 기반 실시간 연동 DB 구조
+    const DB_KEY = 'jincheon_golf_wash_db';
+    let currentRole = 'admin'; // 'admin' | 'staff'
+    let currentStoreId = '1234';
+    let loadedMedia = [];
+
+    window.onload = function() {
+      // 오늘 날짜 세팅
+      document.getElementById('selectedDate').value = new Date().toISOString().substring(0, 10);
+      loadDateData();
+    };
+
+    function toggleAuthFields() {
+      const role = document.getElementById('userRole').value;
+      const pwInput = document.getElementById('storePw');
+      pwInput.placeholder = role === 'admin' ? '비밀번호 (admin123)' : '비밀번호 (staff123)';
+    }
+
+    function handleLogin() {
+      const storeId = document.getElementById('storeId').value.trim();
+      const role = document.getElementById('userRole').value;
+      const pw = document.getElementById('storePw').value.trim();
+
+      if (!storeId) { alert('사업장 번호를 입력하세요.'); return; }
+
+      if (role === 'admin' && pw !== 'admin123') {
+        alert('관리자 비밀번호가 올바르지 않습니다.');
+        return;
+      } else if (role === 'staff' && pw !== 'staff123') {
+        alert('직원 비밀번호가 올바르지 않습니다.');
+        return;
+      }
+
+      currentRole = role;
+      currentStoreId = storeId;
+
+      document.getElementById('roleBadge').innerText = role === 'admin' ? '사장님(관리자)' : '직원(보기전용)';
+      document.getElementById('loginModal').classList.add('hidden');
+
+      // 권한별 UI 제어
+      const adminElements = document.querySelectorAll('.admin-only');
+      adminElements.forEach(el => {
+        if (role === 'staff') {
+          el.style.display = 'none';
+        } else {
+          el.style.display = '';
+        }
+      });
+
+      loadDateData();
+    }
+
+    function logout() {
+      document.getElementById('loginModal').classList.remove('hidden');
+    }
+
+    function updateCount(btn, delta) {
+      if (currentRole === 'staff') return;
+      const countSpan = btn.parentElement.querySelector('.count-val');
+      let val = parseInt(countSpan.innerText) || 0;
+      val = Math.max(0, val + delta);
+      countSpan.innerText = val;
+      calculateTotals();
+    }
+
+    function calculateTotals() {
+      let sedanCount = 0, sedanAmount = 0;
+      let rvCount = 0, rvAmount = 0;
+      let otherCount = 0, otherAmount = 0;
+
+      // 1. 승용차
+      document.querySelectorAll('[data-category="sedan"]').forEach(el => {
+        const cnt = parseInt(el.querySelector('.count-val').innerText) || 0;
+        const price = parseInt(el.querySelector('.price-input').value) || 0;
+        sedanCount += cnt;
+        sedanAmount += (cnt * price);
+      });
+
+      // 2. RV 전체
+      document.querySelectorAll('[data-category="rv"]').forEach(el => {
+        const cnt = parseInt(el.querySelector('.count-val').innerText) || 0;
+        const price = parseInt(el.querySelector('.price-input').value) || 0;
+        rvCount += cnt;
+        rvAmount += (cnt * price);
+      });
+
+      // 3. 기타 옵션
+      document.querySelectorAll('#customServicesGrid [data-custom]').forEach(el => {
+        const price = parseInt(el.querySelector('.custom-price').value) || 0;
+        if (price > 0) {
+          otherCount += 1;
+          otherAmount += price;
+        }
+      });
+
+      // 요약 UI 업데이트
+      document.getElementById('summarySedanCount').innerText = sedanCount.toLocaleString();
+      document.getElementById('summarySedanAmount').innerText = sedanAmount.toLocaleString() + '원';
+
+      document.getElementById('summaryRvCount').innerText = rvCount.toLocaleString();
+      document.getElementById('summaryRvAmount').innerText = rvAmount.toLocaleString() + '원';
+
+      document.getElementById('summaryOtherCount').innerText = otherCount.toLocaleString();
+      document.getElementById('summaryOtherAmount').innerText = otherAmount.toLocaleString() + '원';
+
+      const totalAmount = sedanAmount + rvAmount + otherAmount;
+      document.getElementById('summaryTotalAmount').innerText = totalAmount.toLocaleString() + '원';
+    }
+
+    function saveCurrentData(showAlert = false) {
+      if (currentRole === 'staff') return;
+
+      const dateKey = document.getElementById('selectedDate').value;
+      const db = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
+
+      const data = {
+        sedan: [],
+        rv: [],
+        custom: {},
+        memo: document.getElementById('dailyMemo').value,
+        media: loadedMedia
+      };
+
+      document.querySelectorAll('[data-category="sedan"]').forEach(el => {
+        data.sedan.push({
+          name: el.querySelector('.font-semibold').innerText,
+          price: parseInt(el.querySelector('.price-input').value) || 0,
+          count: parseInt(el.querySelector('.count-val').innerText) || 0
+        });
+      });
+
+      document.querySelectorAll('[data-category="rv"]').forEach(el => {
+        data.rv.push({
+          name: el.querySelector('.font-semibold').innerText,
+          price: parseInt(el.querySelector('.price-input').value) || 0,
+          count: parseInt(el.querySelector('.count-val').innerText) || 0
+        });
+      });
+
+      document.querySelectorAll('#customServicesGrid [data-custom]').forEach(el => {
+        const name = el.getAttribute('data-custom');
+        const price = parseInt(el.querySelector('.custom-price').value) || 0;
+        data.custom[name] = price;
+      });
+
+      db[dateKey] = data;
+      localStorage.setItem(DB_KEY, JSON.stringify(db));
+
+      if (showAlert) alert('오늘 작성하신 데이터가 안심 저장되었습니다!');
+    }
+
+    function loadDateData() {
+      const dateKey = document.getElementById('selectedDate').value;
+      const db = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
+      const data = db[dateKey];
+
+      if (!data) {
+        // 초기화
+        document.querySelectorAll('.count-val').forEach(el => el.innerText = '0');
+        document.querySelectorAll('.custom-price').forEach(el => el.value = '');
+        document.getElementById('dailyMemo').value = '';
+        loadedMedia = [];
+        renderMediaPreview();
+        calculateTotals();
+        return;
+      }
+
+      // 승용차 복원
+      if (data.sedan) {
+        const sedanEls = document.querySelectorAll('[data-category="sedan"]');
+        data.sedan.forEach((item, idx) => {
+          if (sedanEls[idx]) {
+            sedanEls[idx].querySelector('.price-input').value = item.price;
+            sedanEls[idx].querySelector('.count-val').innerText = item.count;
+          }
+        });
+      }
+
+      // RV 복원
+      if (data.rv) {
+        const rvEls = document.querySelectorAll('[data-category="rv"]');
+        data.rv.forEach((item, idx) => {
+          if (rvEls[idx]) {
+            rvEls[idx].querySelector('.price-input').value = item.price;
+            rvEls[idx].querySelector('.count-val').innerText = item.count;
+          }
+        });
+      }
+
+      // 커스텀 복원
+      if (data.custom) {
+        for (const [name, price] of Object.entries(data.custom)) {
+          const el = document.querySelector(`[data-custom="${name}"] .custom-price`);
+          if (el) el.value = price || '';
+        }
+      }
+
+      document.getElementById('dailyMemo').value = data.memo || '';
+      loadedMedia = data.media || [];
+      renderMediaPreview();
+      calculateTotals();
+    }
+
+    // 미디어 업로드 처리
+    function handleMediaUpload(event) {
+      const files = event.target.files;
+      if (!files.length) return;
+
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          loadedMedia.push({
+            type: file.type.startsWith('video') ? 'video' : 'image',
+            src: e.target.result
+          });
+          renderMediaPreview();
+          saveCurrentData();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderMediaPreview() {
+      const container = document.getElementById('mediaPreviewList');
+      container.innerHTML = '';
+
+      if (loadedMedia.length === 0) {
+        container.innerHTML = '<div class="text-xs text-gray-400 self-center mx-auto" id="noMediaText">첨부된 미디어가 없습니다.</div>';
+        return;
+      }
+
+      loadedMedia.forEach((m, idx) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-gray-200 bg-black';
+
+        if (m.type === 'image') {
+          wrapper.innerHTML = `<img src="${m.src}" class="w-full h-full object-cover">`;
+        } else {
+          wrapper.innerHTML = `<video src="${m.src}" class="w-full h-full object-cover"></video><div class="absolute inset-0 flex items-center justify-center bg-black/30"><i class="fa-solid fa-play text-white text-xs"></i></div>`;
+        }
+
+        if (currentRole === 'admin') {
+          const delBtn = document.createElement('button');
+          delBtn.className = 'absolute top-0 right-0 bg-red-600 text-white w-4 h-4 text-[10px] flex items-center justify-center rounded-bl';
+          delBtn.innerText = '×';
+          delBtn.onclick = (e) => {
+            e.stopPropagation();
+            loadedMedia.splice(idx, 1);
+            renderMediaPreview();
+            saveCurrentData();
+          };
+          wrapper.appendChild(delBtn);
+        }
+
+        container.appendChild(wrapper);
+      });
+    }
+
+    // 엑셀 다운로드
+    function exportToExcel() {
+      const db = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
+      const rows = [];
+
+      rows.push(["날짜", "승용차 총 대수", "RV 총 대수", "총 매출 금액", "메모/특이사항"]);
+
+      Object.keys(db).sort().reverse().forEach(date => {
+        const item = db[date];
+        let sedanCnt = 0, sedanSum = 0;
+        let rvCnt = 0, rvSum = 0;
+        let customSum = 0;
+
+        (item.sedan || []).forEach(s => { sedanCnt += s.count; sedanSum += (s.count * s.price); });
+        (item.rv || []).forEach(r => { rvCnt += r.count; rvSum += (r.count * r.price); });
+        for (const p of Object.values(item.custom || {})) { customSum += (parseInt(p) || 0); }
+
+        rows.push([
+          date,
+          sedanCnt,
+          rvCnt,
+          sedanSum + rvSum + customSum,
+          item.memo || ""
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "세차장 장부 기록");
+      XLSX.writeFile(wb, `진천골프장세차장_장부_${new Date().toISOString().substring(0,10)}.xlsx`);
+    }
+
+    // 모달 관리
+    function openStatsModal() {
+      renderHistoryCards();
+      document.getElementById('statsModal').classList.remove('hidden');
+    }
+
+    function closeStatsModal() {
+      document.getElementById('statsModal').classList.add('hidden');
+    }
+
+    function renderHistoryCards() {
+      const container = document.getElementById('historyCardList');
+      const db = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
+      container.innerHTML = '';
+
+      const dates = Object.keys(db).sort().reverse();
+      if (dates.length === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-gray-400 text-xs">저장된 내역이 없습니다.</div>';
+        return;
+      }
+
+      dates.forEach(date => {
+        const item = db[date];
+        let sedanCnt = 0, sedanSum = 0;
+        let rvCnt = 0, rvSum = 0;
+        let customSum = 0;
+
+        (item.sedan || []).forEach(s => { sedanCnt += s.count; sedanSum += (s.count * s.price); });
+        (item.rv || []).forEach(r => { rvCnt += r.count; rvSum += (r.count * r.price); });
+        for (const p of Object.values(item.custom || {})) { customSum += (parseInt(p) || 0); }
+
+        const totalSum = sedanSum + rvSum + customSum;
+
+        const card = document.createElement('div');
+        card.className = 'bg-white p-3 rounded-xl border border-gray-200 shadow-sm space-y-2';
+        card.innerHTML = `
+          <div class="flex justify-between items-center border-b border-gray-100 pb-2">
+            <span class="font-extrabold text-sm text-gray-800">${date}</span>
+            <span class="font-bold text-sm text-emerald-600">${totalSum.toLocaleString()}원</span>
+          </div>
+          <div class="grid grid-cols-3 gap-1 text-[11px] text-gray-600">
+            <div>승용: <b>${sedanCnt}대</b></div>
+            <div>RV: <b>${rvCnt}대</b></div>
+            <div>기타: <b>${customSum.toLocaleString()}원</b></div>
+          </div>
+          ${item.memo ? `<div class="text-xs bg-gray-50 p-2 rounded text-gray-600">📝 ${item.memo}</div>` : ''}
+        `;
+        container.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
